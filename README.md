@@ -78,7 +78,7 @@ int main() {
 ```
 
 Prepared Statements
-=====
+----
 It is possible to retain and reuse statments this will keep the query plan and in case of an complex query or many uses might increase the performance significantly.
 
 ```c++
@@ -99,16 +99,16 @@ It is possible to retain and reuse statments this will keep the query plan and i
 		ps >> [&](int a,int b){ ... };
 
 		// after a successfull execution the statment needs to be reset to be execute again. This will reset the bound values too!
-		ps->reset();
+		ps.reset();
 
 		// If you dont need the returned values you can execute it like this
-		ps->execute(); // the statment will not be reset!
+		ps.execute(); // the statment will not be reset!
 
 		// there is a convinience operator to execute and reset in one go
 		ps++;
 
 		// To disable the execution of a statment when it goes out of scope and wasn't used
-		ps->used(true); // or false if you want it to execute even if it was used
+		ps.used(true); // or false if you want it to execute even if it was used
 
 		// Usage Example:
 
@@ -121,7 +121,7 @@ It is possible to retain and reuse statments this will keep the query plan and i
 ```
 
 Shared Connections
-=====
+----
 If you need the handle to the database connection to execute sqlite3 commands directly you can get a managed shared_ptr to it, so it will not close as long as you have a referenc to it.
 
 Take this example on how to deal with a database backup using SQLITEs own functions in a save and modern way.
@@ -151,9 +151,8 @@ Take this example on how to deal with a database backup using SQLITEs own functi
 ```
 
 Transactions
-=====
+----
 You can use transactions with `begin;`, `commit;` and `rollback;` commands.
-*(don't forget to put all the semicolons at the end of each query)*.
 
 ```c++
 		db << "begin;"; // begin a transaction ...   
@@ -177,7 +176,7 @@ You can use transactions with `begin;`, `commit;` and `rollback;` commands.
 ```
 
 Blob
-=====
+----
 Use `std::vector<T>` to store and retrieve blob data.  
 `T` could be `char,short,int,long,long long, float or double`.
 
@@ -194,12 +193,43 @@ Use `std::vector<T>` to store and retrieve blob data.
 		};
 ```
 
-Dealing with NULL values
-=====
-If you have databases where some rows may be null, you can use boost::optional to retain the NULL value between C++ variables and the database. Note that you must enable the boost support by defining _MODERN_SQLITE_BOOST_OPTIONAL_SUPPORT befor importing the header.
+NULL values
+----
+If you have databases where some rows may be null, you can use `std::unique_ptr<T>` to retain the NULL values between C++ variables and the database.
 
 ```c++
+db << "CREATE TABLE tbl (id integer,age integer, name string, img blob);";
+db << "INSERT INTO tbl VALUES (?, ?, ?, ?);" << 1 << 24 << "bob" << vector<int> { 1, 2 , 3};
+unique_ptr<string> ptr_null; // you can even bind empty unique_ptr<T>
+db << "INSERT INTO tbl VALUES (?, ?, ?, ?);" << 2 << nullptr << ptr_null << nullptr;
 
+db << "select age,name,img from tbl where id = 1"
+		>> [](unique_ptr<int> age_p, unique_ptr<string> name_p, unique_ptr<vector<int>> img_p) {
+			if(age_p == nullptr || name_p == nullptr || img_p == nullptr) {
+				cerr << "ERROR: values should not be null" << std::endl;
+			}
+
+			cout << "age:" << *age_p << " name:" << *name_p << " img:";
+			for(auto i : *img_p) cout << i << ","; cout << endl;
+		};
+
+db << "select age,name,img from tbl where id = 2"
+		>> [](unique_ptr<int> age_p, unique_ptr<string> name_p, unique_ptr<vector<int>> img_p) {
+			if(age_p != nullptr || name_p != nullptr || img_p != nullptr) {
+				cerr << "ERROR: values should be nullptr" << std::endl;
+				exit(EXIT_FAILURE);
+			}
+
+			cout << "OK all three values are nullptr" << endl;
+		};
+```
+
+NULL values (DEPRICATED)
+----
+**Note: this option is deprecated and will be removed in future versions.**
+You can enable boost support by defining _MODERN_SQLITE_BOOST_OPTIONAL_SUPPORT before importing sqlite_modern_cpp header.
+
+```c++
 	#define _MODERN_SQLITE_BOOST_OPTIONAL_SUPPORT
 	#include <sqlite_modern_cpp.h>
 
@@ -251,14 +281,36 @@ If you have databases where some rows may be null, you can use boost::optional t
 ```
 
 Errors
-=====
+----
 
 On error, the library throws an error class indicating the type of error. The error classes are derived from the SQLITE3 error names, so if the error code is SQLITE_CONSTRAINT, the error class thrown is sqlite::exceptions::constraint. Note that all errors are derived from sqlite::sqlite_exception and that itself is derived from std::runtime_exception.
+sqlite::sqlite_exception has a get_code() member function to get the SQLITE3 error code.
 
-*node: for NDK use the full path to your database file : `sqlite::database db("/data/data/com.your.package/dbfile.db")`*.
+```c++
+	database db(":memory:");
+	db << "create table person (id integer primary key not null, name text);";
+
+	try {
+		db << "insert into person (id, name) values (?,?)" << 1 << "jack";
+		// inserting again to produce error
+		db << "insert into person (id, name) values (?,?)" << 1 << "jack";
+	}
+	/* if you are trying to catch all sqlite related exceptions
+	 * make sure to catch them by reference */
+	catch (sqlite_exception& e) {
+		cerr  << e.get_code() << ": " << e.what() << endl;
+	}
+	/* you can catch specific exceptions as well,
+	   catch(sqlite::exceptions::constraint e) {  } */
+```
+
+NDK support
+----
+Just Make sure you are using the full path of your database file :
+`sqlite::database db("/data/data/com.your.package/dbfile.db")`.
 
 Building and Installing
-=====
+----
 
 The usual way works for installing:
 
@@ -269,6 +321,19 @@ The usual way works for installing:
 
 Note, there's nothing to make, so you there's no need to run configure and you can simply point your compiler at the hdr/ directory.
 
+Breaking Changes
+----
+
+- Databases with non-ASCII characters in their names created with versions up to 2.4 are not found by the current master.
+You have to manually rename them to their actual (UTF-8 encoded) name.
+
+Package managers
+----
+Pull requests are welcome :wink:
+- [AUR](https://aur.archlinux.org/packages/sqlite_modern_cpp/) Arch Linux
+ - maintainer [Nissar Chababy](https://github.com/funilrys)
+- Nuget (TODO [nuget.org](https://www.nuget.org/))
+- Conan (TODO [conan.io](https://conan.io/))
 
 ##License
 

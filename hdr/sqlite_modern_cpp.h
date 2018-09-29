@@ -10,7 +10,7 @@
 
 #ifdef __has_include
 #if __has_include(<optional>)
-#define _MODERN_SQLITE_STD_OPTIONAL_SUPPORT
+//#define _MODERN_SQLITE_STD_OPTIONAL_SUPPORT
 #endif
 #endif
 
